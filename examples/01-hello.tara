@@ -1,0 +1,4 @@
+use sys [stdout writeLn];
+fn main {
+	writeLn stdout "Hello, world!";
+};

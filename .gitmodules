@@ -1,0 +1,3 @@
+[submodule "deps/bexpr"]
+	path = deps/bexpr
+	url = https://github.com/silversquirl/bexpr

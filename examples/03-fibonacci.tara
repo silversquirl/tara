@@ -1,0 +1,16 @@
+use sys [stdout writeLn];
+use fmt [format];
+use iter [range];
+
+fn main {
+	writeLn stdout (format "The 10th fibonacci number is {}" (fib 10));
+};
+
+fn fib n {
+	a := 0;
+	b := 1;
+	for i (range n) {
+		[a b] := [b (a + b)];
+	};
+	return a;
+};
