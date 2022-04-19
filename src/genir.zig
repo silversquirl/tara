@@ -190,6 +190,10 @@ const FunctionGenerator = struct {
     fn expression(self: *FunctionGenerator, expr: bexpr.Value) Generator.Error!ir.Temporary {
         switch (expr) {
             .call => |call| {
+                if (special(expr_special, call[0])) |fun| {
+                    return fun(self, call[1..]);
+                }
+
                 const args = try self.mod.arena.allocator().alloc(ir.Temporary, call.len);
                 for (call) |arg, i| {
                     args[i] = try self.expression(arg);
@@ -227,21 +231,24 @@ const FunctionGenerator = struct {
     }
 
     fn special(table: anytype, val: bexpr.Value) @typeInfo(@TypeOf(table.get)).Fn.return_type.? {
-        return switch (val) {
-            .symbol => |sym| table.get(sym),
-            .operator => |op| table.get(op),
-            else => null,
-        };
+        if (val != .symbol) return null;
+        return table.get(val.symbol);
     }
     const stmt_special = std.ComptimeStringMap(StmtFn, .{
         .{ ":=", stmtDefine },
         .{ "=", stmtAssign(null) },
         .{ "+=", stmtAssign(.add) },
+        .{ "-=", stmtAssign(.sub) },
+        .{ "*=", stmtAssign(.mul) },
+        .{ "/=", stmtAssign(.div) },
         // .{ "if", stmtIf },
     });
     const StmtFn = fn (*FunctionGenerator, []const bexpr.Value) Generator.Error!void;
     const expr_special = std.ComptimeStringMap(ExprFn, .{
         .{ "+", exprOp(.add) },
+        .{ "-", exprOp(.sub) },
+        .{ "*", exprOp(.mul) },
+        .{ "/", exprOp(.div) },
     });
     const ExprFn = fn (*FunctionGenerator, []const bexpr.Value) Generator.Error!ir.Temporary;
 
@@ -285,7 +292,9 @@ const FunctionGenerator = struct {
                 } else if (args.len == 1) {
                     // Apply operator with "identity" value
                     const id = switch (op) {
-                        .add => 0,
+                        .add, .sub => 0,
+                        .mul, .div => 1,
+                        else => @compileError("unsupported operator"),
                     };
                     const a = try self.emit(.int, id);
                     const b = try self.expression(args[0]);

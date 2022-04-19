@@ -110,6 +110,9 @@ pub const Instruction = struct {
         call: []const Temporary,
 
         add: [2]Temporary,
+        sub: [2]Temporary,
+        mul: [2]Temporary,
+        div: [2]Temporary,
 
         phi: []const Temporary,
     };
@@ -135,6 +138,9 @@ pub const Instruction = struct {
             },
 
             .add => |args| try writer.print("{} + {}", .{ args[0], args[1] }),
+            .sub => |args| try writer.print("{} - {}", .{ args[0], args[1] }),
+            .mul => |args| try writer.print("{} * {}", .{ args[0], args[1] }),
+            .div => |args| try writer.print("{} / {}", .{ args[0], args[1] }),
 
             .phi => |args| {
                 try writer.writeAll("Φ(");
