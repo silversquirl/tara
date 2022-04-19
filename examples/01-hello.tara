@@ -1,4 +1,4 @@
 use sys [stdout writeLn];
-fn main {
+pub fn main {
 	writeLn stdout "Hello, world!";
 };

@@ -1,0 +1,7 @@
+use sys [stdout writeLn];
+use fmt [format];
+pub fn main {
+	writeLn stdout (format "(3 + 4) * 6 = {}" ((3 + 4) * 6));
+	writeLn stdout (format "7 * 10 - 1 = {}" ((7 * 10) - 1));
+};
+

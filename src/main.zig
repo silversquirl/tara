@@ -1,7 +1,8 @@
 const std = @import("std");
 const bexpr = @import("bexpr");
+const genir = @import("genir.zig");
 
-pub fn main() u8 {
+pub fn main() !u8 {
     if (errorMain()) |_| {
         return 0;
     } else |err| {
@@ -12,7 +13,7 @@ pub fn main() u8 {
                 \\Usage: tara FILE
                 \\
             , .{}),
-            else => |e| std.debug.print("{s}\n", .{@errorName(e)}),
+            else => |e| return e,
         }
         return 1;
     }
@@ -30,17 +31,21 @@ fn errorMain() !void {
         return error.TooManyArgs;
     }
 
-    const ast = try loadFile(path);
-    _ = ast;
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const ast = try loadFile(arena.allocator(), path);
+    var gen = genir.Generator.init(std.heap.page_allocator);
+    const mod = try gen.module(ast);
+    _ = mod;
+    std.debug.print("{}\n", .{mod.exports.get("main").?.func});
 }
 
-fn loadFile(path: []const u8) ![]const bexpr.Value {
+fn loadFile(allocator: std.mem.Allocator, path: []const u8) ![]const bexpr.Value {
     const source = try std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, 1 << 32);
     defer std.heap.page_allocator.free(source);
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    var p = bexpr.Parser.init(arena.allocator(), source);
+    var p = bexpr.Parser.init(allocator, source);
     return p.read() catch |err| {
         if (err == error.ParseError) {
             std.debug.print("Parse error: {}\n", .{p.err});

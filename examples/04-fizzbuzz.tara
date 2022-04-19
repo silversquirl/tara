@@ -2,7 +2,7 @@ use sys [stdout writeLn];
 use fmt [format];
 use iter [range];
 
-fn main {
+pub fn main {
 	for i (range 100) {
 		msg := (match 0
 			(i % 15) "FizzBuzz"
