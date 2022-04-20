@@ -6,8 +6,10 @@ const ir = @import("ir.zig");
 
 pub const Generator = struct {
     arena: std.heap.ArenaAllocator,
-    exports: std.StringHashMapUnmanaged(ir.Export) = .{},
+    deps: std.ArrayListUnmanaged([]const u8) = .{},
+    exports: std.StringHashMapUnmanaged(*const ir.Global) = .{},
     globals: std.StringHashMapUnmanaged(*ir.Global) = .{},
+    strings: std.StringHashMapUnmanaged(void) = .{},
 
     pub fn init(base_allocator: std.mem.Allocator) Generator {
         return Generator{ .arena = std.heap.ArenaAllocator.init(base_allocator) };
@@ -28,6 +30,7 @@ pub const Generator = struct {
 
         const mod = ir.Module{
             .arena = self.arena,
+            .deps = self.deps.toOwnedSlice(self.arena.allocator()),
             .exports = self.exports,
         };
         // Reset generator
@@ -37,6 +40,7 @@ pub const Generator = struct {
     }
 
     fn toplevel(self: *Generator, tl: bexpr.Value) Error!void {
+        if (tl == .list) return; // TODO: Use lists as pseudo-comments for now
         if (tl != .call or tl.call.len < 1) {
             return error.InvalidCode;
         }
@@ -45,7 +49,11 @@ pub const Generator = struct {
         var public = false;
         if (args[0] == .symbol and std.mem.eql(u8, "pub", args[0].symbol)) {
             public = true;
-            args = args[1..];
+            if (args.len == 2 and args[1] == .call) {
+                args = args[1].call;
+            } else {
+                args = args[1..];
+            }
         }
 
         if (args.len < 1 or args[0] != .symbol) {
@@ -61,6 +69,8 @@ pub const Generator = struct {
     const toplevel_table = std.ComptimeStringMap(fn (*Generator, bool, []const bexpr.Value) Error!void, .{
         .{ "use", tlUse },
         .{ "fn", tlFn },
+        .{ "extern", tlExtern },
+        .{ ":=", tlDefine },
     });
 
     fn tlUse(self: *Generator, public: bool, args: []const bexpr.Value) Error!void {
@@ -80,15 +90,13 @@ pub const Generator = struct {
             if (val != .symbol) {
                 return error.InvalidCode;
             }
-            _ = try self.global(val.symbol, .{ .import = .{
-                .mod = mod,
-                .sym = val.symbol,
+            _ = try self.global(val.symbol, public, .{ .import = .{
+                .mod = try self.intern(mod),
+                .sym = try self.intern(val.symbol),
             } });
         }
 
-        if (public) {
-            return error.InvalidCode; // TODO
-        }
+        try self.deps.append(self.arena.allocator(), try self.intern(mod));
     }
 
     fn tlFn(self: *Generator, public: bool, args: []const bexpr.Value) Error!void {
@@ -107,26 +115,151 @@ pub const Generator = struct {
         const body = args[args.len - 1].block;
 
         var gen = FunctionGenerator{ .mod = self };
-        const func = try gen.function(name, args[1 .. args.len - 1], body);
+        _ = try gen.function(name, public, args[1 .. args.len - 1], body);
+    }
 
-        if (public) {
-            try self.exports.put(
-                self.arena.allocator(),
-                func.name,
-                .{ .func = func },
-            );
+    fn tlExtern(self: *Generator, public: bool, extern_args: []const bexpr.Value) Error!void {
+        if (extern_args.len < 2) {
+            return error.InvalidCode;
+        }
+
+        if (extern_args[0] != .string) {
+            return error.InvalidCode;
+        }
+        const mod = extern_args[0].string;
+
+        if (extern_args[1] != .symbol) {
+            return error.InvalidCode;
+        }
+        const kw = extern_args[1].symbol;
+
+        const args = extern_args[2..];
+        if (std.mem.eql(u8, kw, "fn")) {
+            if (args.len < 1 or args[0] != .symbol) {
+                return error.InvalidCode;
+            }
+            const name = args[0].symbol;
+
+            var params = std.ArrayList(ir.Type).init(self.arena.allocator());
+            errdefer params.deinit();
+            var ret: ?ir.Type = null;
+
+            for (args[1..]) |param| {
+                if (ret != null) return error.InvalidCode;
+
+                if (param == .call and param.call.len > 0 and param.call[0] == .symbol) {
+                    if (std.mem.eql(u8, param.call[0].symbol, ":")) {
+                        if (param.call.len != 3) { // (name : type)
+                            return error.InvalidCode;
+                        }
+                        const ty = try self.parseType(param.call[2]);
+                        try params.append(ty);
+                    } else if (std.mem.eql(u8, param.call[0].symbol, "->")) {
+                        if (param.call.len != 2) { // (-> type)
+                            return error.InvalidCode;
+                        }
+                        ret = try self.parseType(param.call[1]);
+                    } else {
+                        const ty = try self.parseType(param);
+                        try params.append(ty);
+                    }
+                } else {
+                    const ty = try self.parseType(param);
+                    try params.append(ty);
+                }
+            }
+
+            _ = try self.global(name, public, .{ .extern_func = .{
+                .name = try self.intern(name),
+                .mod = try self.intern(mod),
+                .params = params.toOwnedSlice(),
+                .ret = ret,
+            } });
+        } else {
+            return error.InvalidCode;
         }
     }
 
-    fn global(self: *Generator, name: []const u8, glo: ir.Global) Error!*ir.Global {
-        const gop = try self.globals.getOrPut(self.arena.allocator(), name);
+    fn parseType(self: *Generator, val: bexpr.Value) !ir.Type {
+        switch (val) {
+            .symbol => |sym| {
+                if (std.meta.stringToEnum(ir.Type.Base, sym)) |base_ty| {
+                    return ir.Type{ .base = base_ty };
+                } else {
+                    return ir.Type{ .name = try self.intern(sym) };
+                }
+            },
+            else => return error.InvalidCode,
+        }
+    }
+
+    fn tlDefine(self: *Generator, public: bool, args: []const bexpr.Value) Error!void {
+        if (args.len != 2) {
+            return error.InvalidCode;
+        }
+        if (args[0] != .symbol) {
+            return error.InvalidCode;
+        }
+        const name = args[0].symbol;
+
+        switch (args[1]) {
+            .number => |num| {
+                _ = try self.global(name, public, .{
+                    .constant = try parseNum(num),
+                });
+            },
+
+            .string => |str| {
+                _ = try self.global(name, public, .{
+                    .constant = .{ .string = try self.intern(str) },
+                });
+            },
+            .symbol => |sym| {
+                const glo = self.globals.get(sym) orelse return error.InvalidCode;
+                try self.globalPtr(name, public, glo);
+            },
+
+            else => return error.InvalidCode,
+        }
+    }
+    fn parseNum(num: []const u8) !ir.Constant {
+        if (std.fmt.parseInt(i64, num, 0)) |int| {
+            return ir.Constant{ .int = int };
+        } else |_| if (std.fmt.parseFloat(f64, num)) |flt| {
+            return ir.Constant{ .float = flt };
+        } else |_| {
+            return error.InvalidCode;
+        }
+    }
+
+    fn global(self: *Generator, name: []const u8, public: bool, glo: ir.Global) Error!*ir.Global {
+        const glo_ptr = try self.arena.allocator().create(ir.Global);
+        glo_ptr.* = glo;
+        try self.globalPtr(name, public, glo_ptr);
+        return glo_ptr;
+    }
+
+    fn globalPtr(self: *Generator, name: []const u8, public: bool, glo: *ir.Global) Error!void {
+        const allocator = self.arena.allocator();
+
+        const gop = try self.globals.getOrPut(allocator, name);
         if (gop.found_existing) {
             return error.InvalidCode;
         }
-        const glo_ptr = try self.arena.allocator().create(ir.Global);
-        glo_ptr.* = glo;
-        gop.value_ptr.* = glo_ptr;
-        return glo_ptr;
+
+        gop.value_ptr.* = glo;
+
+        if (public) {
+            try self.exports.putNoClobber(allocator, try self.intern(name), glo);
+        }
+    }
+
+    fn intern(self: *Generator, str: []const u8) ![]const u8 {
+        const gop = try self.strings.getOrPut(self.arena.allocator(), str);
+        if (!gop.found_existing) {
+            gop.key_ptr.* = try self.arena.allocator().dupe(u8, str);
+        }
+        return gop.key_ptr.*;
     }
 };
 
@@ -146,6 +279,7 @@ const FunctionGenerator = struct {
     fn function(
         self: *FunctionGenerator,
         name: []const u8,
+        public: bool,
         params: []const bexpr.Value,
         body: []const bexpr.Value,
     ) !*ir.Function {
@@ -160,8 +294,8 @@ const FunctionGenerator = struct {
 
         self.block = try allocator.create(ir.Block);
 
-        const glo = try self.mod.global(name, .{ .func = .{
-            .name = name,
+        const glo = try self.mod.global(name, public, .{ .func = .{
+            .name = try self.mod.intern(name),
             .arity = @intCast(u32, params.len),
             .entry = self.block,
         } });
@@ -211,7 +345,7 @@ const FunctionGenerator = struct {
                 }
             },
 
-            .string => |str| return self.emit(.str, str),
+            .string => |str| return self.emit(.str, try self.mod.intern(str)),
             .symbol => return self.load(try self.lvalue(expr)),
 
             else => return error.InvalidCode, // TODO

@@ -1,6 +1,7 @@
 const std = @import("std");
 const bexpr = @import("bexpr");
 const genir = @import("genir.zig");
+const ir = @import("ir.zig");
 
 pub fn main() !u8 {
     if (errorMain()) |_| {
@@ -31,14 +32,30 @@ fn errorMain() !void {
         return error.TooManyArgs;
     }
 
+    var modules = std.StringHashMap(ir.Module).init(std.heap.page_allocator);
+    try loadModuleFile(&modules, "main", path);
+    std.debug.print("{}\n", .{modules.get("main").?.exports.get("main").?.func});
+}
+
+fn loadModuleFile(modules: *std.StringHashMap(ir.Module), module: []const u8, path: []const u8) anyerror!void {
+    const gop = try modules.getOrPut(module);
+    if (gop.found_existing) return;
+
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
     const ast = try loadFile(arena.allocator(), path);
     var gen = genir.Generator.init(std.heap.page_allocator);
-    const mod = try gen.module(ast);
-    _ = mod;
-    std.debug.print("{}\n", .{mod.exports.get("main").?.func});
+    gop.value_ptr.* = try gen.module(ast);
+
+    for (gop.value_ptr.deps) |dep| {
+        try loadModule(modules, dep);
+    }
+}
+fn loadModule(modules: *std.StringHashMap(ir.Module), module: []const u8) !void {
+    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_buf, "std/{s}.tara", .{module});
+    try loadModuleFile(modules, module, path);
 }
 
 fn loadFile(allocator: std.mem.Allocator, path: []const u8) ![]const bexpr.Value {

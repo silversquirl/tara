@@ -4,26 +4,72 @@ const std = @import("std");
 
 pub const Module = struct {
     arena: std.heap.ArenaAllocator,
-    exports: std.StringHashMapUnmanaged(Export) = .{},
+    deps: []const []const u8, // Module names
+    exports: std.StringHashMapUnmanaged(*const Global),
 };
 
 pub const Global = union(enum) {
     func: Function,
+    extern_func: ExternFunction,
     import: Import,
+    constant: Constant,
 
     pub fn format(self: Global, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         switch (self) {
             .func => |func| try writer.writeAll(func.name),
+            .extern_func => |func| try writer.writeAll(func.name),
             .import => |imp| try writer.print("{s}.{s}", .{ imp.mod, imp.sym }),
+            .constant => |c| try writer.print("{}", .{c}),
         }
     }
 };
+
+pub const ExternFunction = struct {
+    name: []const u8,
+    mod: []const u8,
+    params: []const Type,
+    ret: ?Type,
+};
+
 pub const Import = struct {
     mod: []const u8,
     sym: []const u8,
 };
-pub const Export = union(enum) {
-    func: *Function,
+
+pub const Constant = union(enum) {
+    int: i64,
+    float: f64,
+    string: []const u8,
+
+    pub fn format(self: Constant, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        switch (self) {
+            .int => |i| try writer.print("{d}", .{i}),
+            .float => |f| try writer.print("{d}", .{f}),
+            .string => |s| try writer.print("\"{}\"", .{std.zig.fmtEscapes(s)}),
+        }
+    }
+};
+
+pub const Type = union(enum) {
+    name: []const u8,
+    base: Base,
+
+    pub const Base = enum {
+        u8,
+        u16,
+        u32,
+        u64,
+
+        i8,
+        i16,
+        i32,
+        i64,
+
+        f32,
+        f64,
+
+        string,
+    };
 };
 
 pub const Function = struct {
