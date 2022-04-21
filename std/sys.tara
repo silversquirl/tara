@@ -1,5 +1,6 @@
 [TODO: implement this in terms of wasi directly];
-pub extern "tara_runtime" fn writeLn (file: u32) (str: string);
+[TODO: use u32 not i64];
+pub extern "tara_runtime" fn writeLn (file: i64) (str: string);
 
 pub (stdin := 0);
 pub (stdout := 1);

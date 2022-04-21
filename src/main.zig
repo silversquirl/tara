@@ -2,6 +2,7 @@ const std = @import("std");
 const bexpr = @import("bexpr");
 const genir = @import("genir.zig");
 const ir = @import("ir.zig");
+const sema = @import("sema.zig");
 
 pub fn main() !u8 {
     if (errorMain()) |_| {
@@ -41,6 +42,12 @@ fn errorMain() !void {
             std.debug.print("===== {s} =====\n\n{}\n", .{ mod.key_ptr.*, mod.value_ptr.* });
         }
     }
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var analyzer = sema.Analyzer.init(arena.allocator(), modules.unmanaged);
+    const insts = try analyzer.analyze();
+    _ = insts;
 }
 
 fn loadModuleFile(modules: *std.StringHashMap(ir.Module), module: []const u8, path: []const u8) anyerror!void {
