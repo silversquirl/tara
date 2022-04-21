@@ -38,12 +38,7 @@ fn errorMain() !void {
     {
         var it = modules.iterator();
         while (it.next()) |mod| {
-            std.debug.print("===== {s} =====\n\n", .{mod.key_ptr.*});
-            var it2 = mod.value_ptr.exports.iterator();
-            while (it2.next()) |exp| {
-                std.debug.print("{s} := {=}\n", .{ exp.key_ptr.*, exp.value_ptr.* });
-            }
-            std.debug.print("\n", .{});
+            std.debug.print("===== {s} =====\n\n{}\n", .{ mod.key_ptr.*, mod.value_ptr.* });
         }
     }
 }

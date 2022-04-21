@@ -7,8 +7,9 @@ const ir = @import("ir.zig");
 pub const Generator = struct {
     arena: std.heap.ArenaAllocator,
     deps: std.ArrayListUnmanaged([]const u8) = .{},
-    exports: std.StringHashMapUnmanaged(*const ir.Global) = .{},
-    globals: std.StringHashMapUnmanaged(*ir.Global) = .{},
+    exports: std.StringHashMapUnmanaged(ir.GlobalId) = .{},
+    globals: std.ArrayListUnmanaged(ir.Global) = .{},
+    global_names: std.StringHashMapUnmanaged(ir.GlobalId) = .{},
     strings: std.StringHashMapUnmanaged(void) = .{},
 
     pub fn init(base_allocator: std.mem.Allocator) Generator {
@@ -31,6 +32,7 @@ pub const Generator = struct {
         const mod = ir.Module{
             .arena = self.arena,
             .deps = self.deps.toOwnedSlice(self.arena.allocator()),
+            .globals = self.globals.toOwnedSlice(self.arena.allocator()),
             .exports = self.exports,
         };
         // Reset generator
@@ -115,7 +117,7 @@ pub const Generator = struct {
         const body = args[args.len - 1].block;
 
         var gen = FunctionGenerator{ .mod = self };
-        _ = try gen.function(name, public, args[1 .. args.len - 1], body);
+        try gen.function(name, public, args[1 .. args.len - 1], body);
     }
 
     fn tlExtern(self: *Generator, public: bool, extern_args: []const bexpr.Value) Error!void {
@@ -215,8 +217,8 @@ pub const Generator = struct {
                 });
             },
             .symbol => |sym| {
-                const glo = self.globals.get(sym) orelse return error.InvalidCode;
-                try self.globalPtr(name, public, glo);
+                const glo = self.global_names.get(sym) orelse return error.InvalidCode;
+                try self.nameGlobal(name, public, glo);
             },
 
             else => return error.InvalidCode,
@@ -232,17 +234,17 @@ pub const Generator = struct {
         }
     }
 
-    fn global(self: *Generator, name: []const u8, public: bool, glo: ir.Global) Error!*ir.Global {
-        const glo_ptr = try self.arena.allocator().create(ir.Global);
-        glo_ptr.* = glo;
-        try self.globalPtr(name, public, glo_ptr);
-        return glo_ptr;
+    fn global(self: *Generator, name: []const u8, public: bool, glo: ir.Global) Error!ir.GlobalId {
+        const id = @intToEnum(ir.GlobalId, self.globals.items.len);
+        try self.globals.append(self.arena.allocator(), glo);
+        try self.nameGlobal(name, public, id);
+        return id;
     }
 
-    fn globalPtr(self: *Generator, name: []const u8, public: bool, glo: *ir.Global) Error!void {
+    fn nameGlobal(self: *Generator, name: []const u8, public: bool, glo: ir.GlobalId) Error!void {
         const allocator = self.arena.allocator();
 
-        const gop = try self.globals.getOrPut(allocator, name);
+        const gop = try self.global_names.getOrPut(allocator, name);
         if (gop.found_existing) {
             return error.InvalidCode;
         }
@@ -282,7 +284,7 @@ const FunctionGenerator = struct {
         public: bool,
         params: []const bexpr.Value,
         body: []const bexpr.Value,
-    ) !*ir.Function {
+    ) !void {
         const allocator = self.mod.arena.allocator();
 
         for (params) |param| {
@@ -292,20 +294,19 @@ const FunctionGenerator = struct {
             try self.locals.put(allocator, param.symbol, self.newTemp());
         }
 
-        const glo = try self.mod.global(name, public, .{ .func = .{
-            .name = try self.mod.intern(name),
-            .arity = @intCast(u32, params.len),
-            .blocks = undefined,
-        } });
+        const id = try self.mod.global(name, public, undefined);
 
         for (body) |stmt| {
             try self.statement(stmt);
         }
         try self.block(.{ .ret = null });
 
-        glo.func.blocks = self.blocks.toOwnedSlice(allocator);
-
-        return &glo.func;
+        self.mod.globals.items[@enumToInt(id)] = .{ .func = .{
+            .name = try self.mod.intern(name),
+            .arity = @intCast(u32, params.len),
+            .ntemp = self.temp_i,
+            .blocks = self.blocks.toOwnedSlice(allocator),
+        } };
     }
 
     fn block(self: *FunctionGenerator, term: ir.Block.Terminal) !void {
@@ -458,7 +459,7 @@ const FunctionGenerator = struct {
                 return self.locals.get(name) orelse error.InvalidCode;
             },
             .global => |name| {
-                const glo = self.mod.globals.get(name) orelse return error.InvalidCode;
+                const glo = self.mod.global_names.get(name) orelse return error.InvalidCode;
                 return self.emit(.global, glo);
             },
         }

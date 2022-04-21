@@ -5,7 +5,19 @@ const std = @import("std");
 pub const Module = struct {
     arena: std.heap.ArenaAllocator,
     deps: []const []const u8, // Module names
-    exports: std.StringHashMapUnmanaged(*const Global),
+    globals: []const Global,
+    exports: std.StringHashMapUnmanaged(GlobalId),
+
+    pub fn format(self: Module, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        for (self.globals) |glo, i| {
+            try writer.print("${} := {}\n", .{ i, glo });
+        }
+
+        var it = self.exports.iterator();
+        while (it.next()) |exp| {
+            try writer.print("pub \"{}\" {}\n", .{ std.zig.fmtEscapes(exp.key_ptr.*), exp.value_ptr.* });
+        }
+    }
 };
 
 pub const Global = union(enum) {
@@ -14,21 +26,12 @@ pub const Global = union(enum) {
     import: Import,
     constant: Constant,
 
-    pub fn format(self: Global, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        if (std.mem.eql(u8, fmt, "=")) {
-            switch (self) {
-                .func => |func| try writer.print("{}", .{func}),
-                .extern_func => |func| try writer.print("{}", .{func}),
-                .import => |imp| try writer.print("use {s} [{s}]", .{ imp.mod, imp.sym }),
-                .constant => |c| try writer.print("{}", .{c}),
-            }
-        } else {
-            switch (self) {
-                .func => |func| try writer.writeAll(func.name),
-                .extern_func => |func| try writer.writeAll(func.name),
-                .import => |imp| try writer.print("{s}.{s}", .{ imp.mod, imp.sym }),
-                .constant => |c| try writer.print("{}", .{c}),
-            }
+    pub fn format(self: Global, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        switch (self) {
+            .func => |func| try writer.print("{}", .{func}),
+            .extern_func => |func| try writer.print("{}", .{func}),
+            .import => |imp| try writer.print("use {s} [{s}]", .{ imp.mod, imp.sym }),
+            .constant => |c| try writer.print("{}", .{c}),
         }
     }
 };
@@ -100,8 +103,9 @@ pub const Type = union(enum) {
 
 pub const Function = struct {
     name: []const u8,
-    arity: u32 = 0,
+    arity: u32,
     variadic: bool = false,
+    ntemp: u32, // Number of temporaries used by this function
     blocks: []const Block,
 
     pub fn format(self: Function, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -153,13 +157,6 @@ pub const Block = struct {
         try writer.print("    {}\n", .{self.term});
     }
 };
-pub const BlockId = enum(u32) {
-    _,
-    pub fn format(self: BlockId, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        try writer.print(":{}", .{@enumToInt(self)});
-    }
-};
-
 pub const Instruction = struct {
     result: Temporary,
     op: Op,
@@ -169,7 +166,7 @@ pub const Instruction = struct {
         float: f64,
         str: []const u8,
         copy: Temporary,
-        global: *const Global,
+        global: GlobalId,
 
         call: []const Temporary,
 
@@ -226,5 +223,19 @@ pub const Temporary = enum(u32) {
 
     pub fn format(self: Temporary, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         try writer.print("%{}", .{@enumToInt(self)});
+    }
+};
+
+pub const BlockId = enum(u32) {
+    _,
+    pub fn format(self: BlockId, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print(":{}", .{@enumToInt(self)});
+    }
+};
+
+pub const GlobalId = enum(u32) {
+    _,
+    pub fn format(self: GlobalId, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("${}", .{@enumToInt(self)});
     }
 };
