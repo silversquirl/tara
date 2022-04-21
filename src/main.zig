@@ -33,6 +33,7 @@ fn errorMain() !void {
         return error.TooManyArgs;
     }
 
+    std.debug.print("========== IRGEN ==========\n\n", .{});
     var modules = std.StringHashMap(ir.Module).init(std.heap.page_allocator);
     defer modules.deinit();
     try loadModuleFile(&modules, "main", path);
@@ -43,11 +44,28 @@ fn errorMain() !void {
         }
     }
 
+    std.debug.print("========== SEMA ==========\n\n", .{});
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     var analyzer = sema.Analyzer.init(arena.allocator(), modules.unmanaged);
     const insts = try analyzer.analyze();
-    _ = insts;
+    for (insts.values()) |inst| {
+        std.debug.print("instance of {s}:\n", .{inst.func.name});
+        std.debug.print("  args:\n", .{});
+        for (inst.types) |arg, i| {
+            if (i == inst.func.arity) {
+                std.debug.print("  temps:\n", .{});
+            }
+            std.debug.print("    %{}: ", .{i});
+            for (arg.keys()) |ty, j| {
+                if (j > 0) {
+                    std.debug.print(" | ", .{});
+                }
+                std.debug.print("{}", .{ty});
+            }
+            std.debug.print("\n", .{});
+        }
+    }
 }
 
 fn loadModuleFile(modules: *std.StringHashMap(ir.Module), module: []const u8, path: []const u8) anyerror!void {

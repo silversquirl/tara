@@ -317,12 +317,39 @@ pub const Type = union(enum) {
     string,
 
     // An untyped Tara function
-    func: struct { mod: *const ir.Module, func: *const ir.Function },
+    func: struct {
+        mod: *const ir.Module,
+        func: *const ir.Function,
+    },
     // A typed extern function
     extern_func: struct {
         params: []const Type,
         ret: *const Type,
     },
+
+    pub fn format(self: Type, _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        switch (self) {
+            .void, .string => try writer.writeAll(@tagName(self)),
+
+            .int => |i| try writer.print("{c}{d}", .{
+                if (i.signed) @as(u8, 'i') else 'u',
+                @as(u8, 1) << i.size,
+            }),
+
+            .float => |size| try writer.print("f{d}", .{
+                @as(u8, 1) << size,
+            }),
+
+            .func => |func| try writer.print("fn {d} ({*}.{s})", .{ func.func.arity, func.mod, func.func.name }),
+            .extern_func => |func| {
+                try writer.writeAll("extern fn");
+                for (func.params) |param| {
+                    try writer.print(" {}", .{param});
+                }
+                try writer.print(" (-> {})", .{func.ret});
+            },
+        }
+    }
 
     fn hash(self: Type, hasher: anytype) void {
         autoHash(hasher, std.meta.activeTag(self));
