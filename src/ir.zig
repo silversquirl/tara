@@ -102,23 +102,14 @@ pub const Function = struct {
     name: []const u8,
     arity: u32 = 0,
     variadic: bool = false,
-    entry: *const Block,
+    blocks: []const Block,
 
     pub fn format(self: Function, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         const ellipsis: []const u8 = if (self.variadic) "..." else "";
         try writer.print("fn {d}{s} {s}\n", .{ self.arity, ellipsis, self.name });
 
-        try printBlocks(writer, self.entry);
-    }
-    fn printBlocks(writer: anytype, blk: *const Block) @TypeOf(writer).Error!void {
-        try writer.print("{}", .{blk});
-        switch (blk.term) {
-            .jmp => |next| try printBlocks(writer, next),
-            .br => |br| {
-                try printBlocks(writer, br.z);
-                try printBlocks(writer, br.nz);
-            },
-            .ret, .unr => {},
+        for (self.blocks) |blk, i| {
+            try writer.print("  {}:\n{}", .{ i, blk });
         }
     }
 };
@@ -129,12 +120,12 @@ pub const Block = struct {
 
     pub const Terminal = union(enum) {
         // Unconditional jump
-        jmp: *const Block,
+        jmp: BlockId,
         // Conditional branch
         br: struct {
             cond: Temporary,
-            z: *const Block,
-            nz: *const Block,
+            z: BlockId,
+            nz: BlockId,
         },
         // Return
         ret: ?Temporary,
@@ -143,8 +134,8 @@ pub const Block = struct {
 
         pub fn format(self: Terminal, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
             switch (self) {
-                .jmp => |next| try writer.print("jmp {:};", .{next}),
-                .br => |br| try writer.print("br {}, {:}, {:};", .{ br.cond, br.z, br.nz }),
+                .jmp => |next| try writer.print("jmp {};", .{next}),
+                .br => |br| try writer.print("br {}, {}, {};", .{ br.cond, br.z, br.nz }),
                 .ret => |maybe_value| if (maybe_value) |v| {
                     try writer.print("ret {};", .{v});
                 } else {
@@ -155,16 +146,17 @@ pub const Block = struct {
         }
     };
 
-    pub fn format(self: *const Block, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        if (std.mem.eql(u8, fmt, ":")) {
-            try writer.print(":{x}", .{@ptrToInt(self)});
-        } else {
-            try writer.print("  {x}:\n", .{@ptrToInt(self)});
-            for (self.insns) |insn| {
-                try writer.print("    {}\n", .{insn});
-            }
-            try writer.print("    {}\n", .{self.term});
+    pub fn format(self: Block, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        for (self.insns) |insn| {
+            try writer.print("    {}\n", .{insn});
         }
+        try writer.print("    {}\n", .{self.term});
+    }
+};
+pub const BlockId = enum(u32) {
+    _,
+    pub fn format(self: BlockId, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print(":{}", .{@enumToInt(self)});
     }
 };
 

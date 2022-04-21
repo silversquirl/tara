@@ -268,7 +268,7 @@ const FunctionGenerator = struct {
     temp_i: u32 = 0,
     locals: std.StringArrayHashMapUnmanaged(ir.Temporary) = .{},
 
-    block: *ir.Block = undefined,
+    blocks: std.ArrayListUnmanaged(ir.Block) = .{},
     insns: std.ArrayListUnmanaged(ir.Instruction) = .{},
 
     fn deinit(self: *FunctionGenerator) void {
@@ -292,21 +292,27 @@ const FunctionGenerator = struct {
             try self.locals.put(allocator, param.symbol, self.newTemp());
         }
 
-        self.block = try allocator.create(ir.Block);
-
         const glo = try self.mod.global(name, public, .{ .func = .{
             .name = try self.mod.intern(name),
             .arity = @intCast(u32, params.len),
-            .entry = self.block,
+            .blocks = undefined,
         } });
 
         for (body) |stmt| {
             try self.statement(stmt);
         }
-        self.block.insns = self.insns.toOwnedSlice(allocator);
-        self.block.term = .{ .ret = null };
+        try self.block(.{ .ret = null });
+
+        glo.func.blocks = self.blocks.toOwnedSlice(allocator);
 
         return &glo.func;
+    }
+
+    fn block(self: *FunctionGenerator, term: ir.Block.Terminal) !void {
+        try self.blocks.append(self.mod.arena.allocator(), .{
+            .insns = self.insns.toOwnedSlice(self.mod.arena.allocator()),
+            .term = term,
+        });
     }
 
     fn statement(self: *FunctionGenerator, stmt: bexpr.Value) !void {

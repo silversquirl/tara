@@ -33,6 +33,7 @@ fn errorMain() !void {
     }
 
     var modules = std.StringHashMap(ir.Module).init(std.heap.page_allocator);
+    defer modules.deinit();
     try loadModuleFile(&modules, "main", path);
     {
         var it = modules.iterator();
