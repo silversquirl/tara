@@ -14,12 +14,21 @@ pub const Global = union(enum) {
     import: Import,
     constant: Constant,
 
-    pub fn format(self: Global, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        switch (self) {
-            .func => |func| try writer.writeAll(func.name),
-            .extern_func => |func| try writer.writeAll(func.name),
-            .import => |imp| try writer.print("{s}.{s}", .{ imp.mod, imp.sym }),
-            .constant => |c| try writer.print("{}", .{c}),
+    pub fn format(self: Global, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        if (std.mem.eql(u8, fmt, "=")) {
+            switch (self) {
+                .func => |func| try writer.print("{}", .{func}),
+                .extern_func => |func| try writer.print("{}", .{func}),
+                .import => |imp| try writer.print("use {s} [{s}]", .{ imp.mod, imp.sym }),
+                .constant => |c| try writer.print("{}", .{c}),
+            }
+        } else {
+            switch (self) {
+                .func => |func| try writer.writeAll(func.name),
+                .extern_func => |func| try writer.writeAll(func.name),
+                .import => |imp| try writer.print("{s}.{s}", .{ imp.mod, imp.sym }),
+                .constant => |c| try writer.print("{}", .{c}),
+            }
         }
     }
 };
@@ -29,6 +38,16 @@ pub const ExternFunction = struct {
     mod: []const u8,
     params: []const Type,
     ret: ?Type,
+
+    pub fn format(self: ExternFunction, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("extern \"{}\" fn {s}", .{ std.zig.fmtEscapes(self.mod), self.name });
+        for (self.params) |param| {
+            try writer.print(" {}", .{param});
+        }
+        if (self.ret) |ret| {
+            try writer.print(" (-> {})", .{ret});
+        }
+    }
 };
 
 pub const Import = struct {
@@ -70,6 +89,13 @@ pub const Type = union(enum) {
 
         string,
     };
+
+    pub fn format(self: Type, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        switch (self) {
+            .name => |name| try writer.writeAll(name),
+            .base => |base| try writer.writeAll(@tagName(base)),
+        }
+    }
 };
 
 pub const Function = struct {

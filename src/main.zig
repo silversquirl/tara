@@ -34,7 +34,17 @@ fn errorMain() !void {
 
     var modules = std.StringHashMap(ir.Module).init(std.heap.page_allocator);
     try loadModuleFile(&modules, "main", path);
-    std.debug.print("{}\n", .{modules.get("main").?.exports.get("main").?.func});
+    {
+        var it = modules.iterator();
+        while (it.next()) |mod| {
+            std.debug.print("===== {s} =====\n\n", .{mod.key_ptr.*});
+            var it2 = mod.value_ptr.exports.iterator();
+            while (it2.next()) |exp| {
+                std.debug.print("{s} := {=}\n", .{ exp.key_ptr.*, exp.value_ptr.* });
+            }
+            std.debug.print("\n", .{});
+        }
+    }
 }
 
 fn loadModuleFile(modules: *std.StringHashMap(ir.Module), module: []const u8, path: []const u8) anyerror!void {
@@ -59,7 +69,7 @@ fn loadModule(modules: *std.StringHashMap(ir.Module), module: []const u8) !void 
 }
 
 fn loadFile(allocator: std.mem.Allocator, path: []const u8) ![]const bexpr.Value {
-    const source = try std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, 1 << 32);
+    const source = try std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, std.math.maxInt(u32));
     defer std.heap.page_allocator.free(source);
 
     var p = bexpr.Parser.init(allocator, source);
