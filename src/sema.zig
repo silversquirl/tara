@@ -70,6 +70,9 @@ const ModuleAnalyzer = struct {
                 return Type{ .extern_func = .{
                     .params = params,
                     .ret = ret,
+
+                    .name = func.name,
+                    .mod = func.mod,
                 } };
             },
 
@@ -217,51 +220,7 @@ const InstanceAnalyzer = struct {
                             }
 
                             const actual = set.keys()[0];
-                            if (expected.eql(actual)) {
-                                // OK
-                            } else if (std.meta.activeTag(expected) == actual) {
-                                switch (expected) {
-                                    // Range check
-                                    .int => |a| {
-                                        const b = actual.int;
-                                        if ((!a.signed and b.signed) or
-                                            a.size < b.size or
-                                            (a.size == b.size and a.signed and !b.signed))
-                                        {
-                                            return error.TypeMismatch;
-                                        }
-                                    },
-
-                                    // Size check
-                                    .float => |f| if (f < actual.float) {
-                                        return error.TypeMismatch;
-                                    },
-
-                                    else => return error.TypeMismatch,
-                                }
-                            } else if (actual == .constant) {
-                                switch (actual.constant) {
-                                    .int => |n| if (expected != .int) {
-                                        return error.TypeMismatch;
-                                    } else {
-                                        const umax = @as(i66, 1) << (@as(u7, 1) << expected.int.size);
-                                        const max = if (expected.int.signed) umax >> 1 else umax;
-                                        const min = if (expected.int.signed) -max else 0;
-                                        if (n < min or n >= max) {
-                                            return error.TypeMismatch;
-                                        }
-                                    },
-
-                                    .float => if (expected != .float) {
-                                        return error.TypeMismatch;
-                                    },
-
-                                    .string => if (expected != .string) {
-                                        return error.TypeMismatch;
-                                    },
-                                }
-                            } else {
-                                std.debug.print("{} != {}\n", .{ expected, actual });
+                            if (!typesCompatible(expected, actual)) {
                                 return error.TypeMismatch;
                             }
                         }
@@ -287,6 +246,71 @@ const InstanceAnalyzer = struct {
         self.types[@enumToInt(insn.result)] = ret.unmanaged;
     }
 };
+
+fn typesCompatible(expected: Type, actual: Type) bool {
+    if (expected.eql(actual)) {
+        return true;
+    }
+
+    if (std.meta.activeTag(expected) == actual) {
+        switch (expected) {
+            // Range check
+            .int => |a| {
+                const b = actual.int;
+                if ((!a.signed and b.signed) or
+                    a.size < b.size or
+                    (a.size == b.size and a.signed and !b.signed))
+                {
+                    return false;
+                }
+            },
+
+            // Size check
+            .float => |f| if (f < actual.float) {
+                return false;
+            },
+
+            // Name/module are irrelevant
+            .extern_func => |af| {
+                const bf = actual.extern_func;
+
+                for (af.params) |param, i| {
+                    if (!param.eql(bf.params[i])) return false;
+                }
+
+                return af.ret.eql(bf.ret.*);
+            },
+
+            else => return false,
+        }
+    } else if (actual == .constant) {
+        switch (actual.constant) {
+            .int => |n| if (expected != .int) {
+                return false;
+            } else {
+                const umax = @as(i66, 1) << (@as(u7, 1) << expected.int.size);
+                const max = if (expected.int.signed) umax >> 1 else umax;
+                const min = if (expected.int.signed) -max else 0;
+                if (n < min or n >= max) {
+                    return false;
+                }
+            },
+
+            .float => if (expected != .float) {
+                return false;
+            },
+
+            .string => if (expected != .string) {
+                return false;
+            },
+        }
+    } else {
+        std.debug.print("{} != {}\n", .{ expected, actual });
+        return false;
+    }
+
+    return true;
+}
 
 pub const Error = error{
     InvalidCode,
@@ -373,6 +397,9 @@ pub const Type = union(enum) {
     extern_func: struct {
         params: []const Type,
         ret: *const Type,
+
+        name: []const u8,
+        mod: []const u8,
     },
 
     pub fn format(self: Type, _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -392,7 +419,7 @@ pub const Type = union(enum) {
 
             .func => |func| try writer.print("fn {d} ({*}.{s})", .{ func.func.arity, func.mod, func.func.name }),
             .extern_func => |func| {
-                try writer.writeAll("extern fn");
+                try writer.print("extern \"{}\" fn {s}", .{ std.zig.fmtEscapes(func.mod), func.name });
                 for (func.params) |param| {
                     try writer.print(" {}", .{param});
                 }
@@ -447,6 +474,9 @@ pub const Type = union(enum) {
                 for (af.params) |param, i| {
                     if (!param.eql(bf.params[i])) return false;
                 }
+
+                if (!std.mem.eql(u8, af.name, bf.name)) return false;
+                if (!std.mem.eql(u8, af.mod, bf.mod)) return false;
 
                 return true;
             },
