@@ -84,18 +84,7 @@ const ModuleAnalyzer = struct {
                 return mod.global(glo_id);
             },
 
-            .constant => |c| switch (c) {
-                // TODO: integer literal type
-                .int => return Type{ .int = .{
-                    .signed = true,
-                    .size = 6,
-                } },
-
-                // TODO: float literal type
-                .float => return Type{ .float = 6 },
-
-                .string => return Type{ .string = {} },
-            },
+            .constant => |c| return Type{ .constant = c },
         }
     }
 
@@ -183,18 +172,19 @@ const InstanceAnalyzer = struct {
     }
 
     fn instruction(self: *InstanceAnalyzer, insn: ir.Instruction) !void {
-        var ret = TypeSetManaged.init(self.mod.root.allocator);
+        var ret = TypeSet.Managed.init(self.mod.root.allocator);
         switch (insn.op) {
-            // TODO: integer literal type
-            .int => try ret.put(.{ .int = .{
-                .signed = true,
-                .size = 6,
+            .int => |i| try ret.put(.{ .constant = .{
+                .int = i,
             } }, {}),
 
-            // TODO: float literal type
-            .float => try ret.put(.{ .float = 6 }, {}),
+            .float => |f| try ret.put(.{ .constant = .{
+                .float = f,
+            } }, {}),
 
-            .str => try ret.put(.string, {}),
+            .str => |s| try ret.put(.{ .constant = .{
+                .string = s,
+            } }, {}),
 
             .copy => |t| ret.unmanaged = self.types[@enumToInt(t)],
             .global => |g| try ret.put(try self.mod.global(g), {}),
@@ -220,13 +210,58 @@ const InstanceAnalyzer = struct {
                     },
 
                     .extern_func => |func| {
-                        for (func.params) |param, i| {
+                        for (func.params) |expected, i| {
                             const set = self.types[@enumToInt(args[i])];
                             if (set.keys().len != 1) {
-                                return error.TypeMismatch; // TODO: implicit conversion
+                                return error.TypeMismatch;
                             }
-                            const ty = set.keys()[0];
-                            if (!param.eql(ty)) {
+
+                            const actual = set.keys()[0];
+                            if (expected.eql(actual)) {
+                                // OK
+                            } else if (std.meta.activeTag(expected) == actual) {
+                                switch (expected) {
+                                    // Range check
+                                    .int => |a| {
+                                        const b = actual.int;
+                                        if ((!a.signed and b.signed) or
+                                            a.size < b.size or
+                                            (a.size == b.size and a.signed and !b.signed))
+                                        {
+                                            return error.TypeMismatch;
+                                        }
+                                    },
+
+                                    // Size check
+                                    .float => |f| if (f < actual.float) {
+                                        return error.TypeMismatch;
+                                    },
+
+                                    else => return error.TypeMismatch,
+                                }
+                            } else if (actual == .constant) {
+                                switch (actual.constant) {
+                                    .int => |n| if (expected != .int) {
+                                        return error.TypeMismatch;
+                                    } else {
+                                        const umax = @as(i66, 1) << (@as(u7, 1) << expected.int.size);
+                                        const max = if (expected.int.signed) umax >> 1 else umax;
+                                        const min = if (expected.int.signed) -max else 0;
+                                        if (n < min or n >= max) {
+                                            return error.TypeMismatch;
+                                        }
+                                    },
+
+                                    .float => if (expected != .float) {
+                                        return error.TypeMismatch;
+                                    },
+
+                                    .string => if (expected != .string) {
+                                        return error.TypeMismatch;
+                                    },
+                                }
+                            } else {
+                                std.debug.print("{} != {}\n", .{ expected, actual });
                                 return error.TypeMismatch;
                             }
                         }
@@ -304,10 +339,23 @@ pub const Instance = struct {
 };
 
 pub const TypeSet = std.ArrayHashMapUnmanaged(Type, void, Type.Context, true);
-const TypeSetManaged = std.ArrayHashMap(Type, void, Type.Context, true);
+
+pub fn fmtTypeSet(tys: TypeSet) std.fmt.Formatter(formatTypeSet) {
+    return .{ .data = tys };
+}
+fn formatTypeSet(tys: TypeSet, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    for (tys.keys()) |ty, j| {
+        if (j > 0) {
+            try writer.print(" | ", .{});
+        }
+        try writer.print("{}", .{ty});
+    }
+}
 
 pub const Type = union(enum) {
     void,
+
+    constant: ir.Constant,
 
     int: struct {
         signed: bool,
@@ -330,6 +378,8 @@ pub const Type = union(enum) {
     pub fn format(self: Type, _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         switch (self) {
             .void, .string => try writer.writeAll(@tagName(self)),
+
+            .constant => |c| try writer.print("const {}", .{c}),
 
             .int => |i| try writer.print("{c}{d}", .{
                 if (i.signed) @as(u8, 'i') else 'u',
@@ -358,6 +408,15 @@ pub const Type = union(enum) {
             .int => |i| autoHash(hasher, i),
             .float => |f| autoHash(hasher, f),
 
+            .constant => |c| switch (c) {
+                .int => |i| autoHash(hasher, i),
+                .float => |f| autoHash(hasher, @bitCast(u64, f)),
+                .string => |s| {
+                    autoHash(hasher, s.len);
+                    hasher.update(s);
+                },
+            },
+
             .func => |f| hashFunc(hasher, f.func.*),
             .extern_func => |f| {
                 f.ret.hash(hasher);
@@ -374,6 +433,8 @@ pub const Type = union(enum) {
         switch (a) {
             .void, .string => return true,
             .int, .float, .func => return std.meta.eql(a, b),
+
+            .constant => |c| return c.eql(b.constant),
 
             .extern_func => |af| {
                 const bf = b.extern_func;

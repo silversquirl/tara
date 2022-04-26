@@ -59,9 +59,18 @@ pub const Import = struct {
 };
 
 pub const Constant = union(enum) {
-    int: i64,
+    int: i65,
     float: f64,
     string: []const u8,
+
+    pub fn eql(a: Constant, b: Constant) bool {
+        if (std.meta.activeTag(a) != b) return false;
+        return switch (a) {
+            .int => a.int == b.int,
+            .float => a.float == b.float,
+            .string => std.mem.eql(u8, a.string, b.string),
+        };
+    }
 
     pub fn format(self: Constant, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         switch (self) {

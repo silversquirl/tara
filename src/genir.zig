@@ -225,7 +225,7 @@ pub const Generator = struct {
         }
     }
     fn parseNum(num: []const u8) !ir.Constant {
-        if (std.fmt.parseInt(i64, num, 0)) |int| {
+        if (std.fmt.parseInt(i65, num, 0)) |int| {
             return ir.Constant{ .int = int };
         } else |_| if (std.fmt.parseFloat(f64, num)) |flt| {
             return ir.Constant{ .float = flt };

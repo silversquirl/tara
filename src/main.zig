@@ -56,15 +56,9 @@ fn errorMain() !void {
             if (i == inst.func.arity) {
                 std.debug.print("  temps:\n", .{});
             }
-            std.debug.print("    %{}: ", .{i});
-            for (arg.keys()) |ty, j| {
-                if (j > 0) {
-                    std.debug.print(" | ", .{});
-                }
-                std.debug.print("{}", .{ty});
-            }
-            std.debug.print("\n", .{});
+            std.debug.print("    %{}: {}\n", .{ i, sema.fmtTypeSet(arg) });
         }
+        std.debug.print("  ret: {}\n", .{sema.fmtTypeSet(inst.ret)});
     }
 }
 
