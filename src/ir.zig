@@ -171,9 +171,7 @@ pub const Instruction = struct {
     op: Op,
 
     pub const Op = union(enum) {
-        int: i64,
-        float: f64,
-        str: []const u8,
+        literal: Constant,
         copy: Temporary,
         global: GlobalId,
 
@@ -190,9 +188,7 @@ pub const Instruction = struct {
     pub fn format(self: Instruction, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
         try writer.print("{} = ", .{self.result});
         switch (self.op) {
-            .int => |i| try writer.print("{d}", .{i}),
-            .float => |f| try writer.print("{d}", .{f}),
-            .str => |s| try writer.print("\"{}\"", .{std.zig.fmtEscapes(s)}),
+            .literal => |c| try writer.print("{}", .{c}),
             .copy => |t| try writer.print("{}", .{t}),
             .global => |g| try writer.print("{}", .{g}),
 

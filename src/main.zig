@@ -95,7 +95,3 @@ fn loadFile(allocator: std.mem.Allocator, path: []const u8) ![]const bexpr.Value
         return err;
     };
 }
-
-test "basic test" {
-    try std.testing.expectEqual(10, 3 + 7);
-}

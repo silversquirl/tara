@@ -343,16 +343,18 @@ const FunctionGenerator = struct {
             },
 
             .number => |num| {
-                if (std.fmt.parseInt(i64, num, 0)) |int| {
-                    return self.emit(.int, int);
-                } else |_| if (std.fmt.parseFloat(f64, num)) |flt| {
-                    return self.emit(.float, flt);
+                if (std.fmt.parseInt(i64, num, 0)) |i| {
+                    return self.emit(.literal, .{ .int = i });
+                } else |_| if (std.fmt.parseFloat(f64, num)) |f| {
+                    return self.emit(.literal, .{ .float = f });
                 } else |_| {
                     return error.InvalidCode;
                 }
             },
 
-            .string => |str| return self.emit(.str, try self.mod.intern(str)),
+            .string => |str| return self.emit(.literal, .{
+                .string = try self.mod.intern(str),
+            }),
             .symbol => return self.load(try self.lvalue(expr)),
 
             else => return error.InvalidCode, // TODO
@@ -437,7 +439,7 @@ const FunctionGenerator = struct {
                         .mul, .div => 1,
                         else => @compileError("unsupported operator"),
                     };
-                    const a = try self.emit(.int, id);
+                    const a = try self.emit(.literal, .{ .int = id });
                     const b = try self.expression(args[0]);
                     return self.emit(op, .{ a, b });
                 } else {

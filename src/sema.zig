@@ -177,18 +177,7 @@ const InstanceAnalyzer = struct {
     fn instruction(self: *InstanceAnalyzer, insn: ir.Instruction) !void {
         var ret = TypeSet.Managed.init(self.mod.root.allocator);
         switch (insn.op) {
-            .int => |i| try ret.put(.{ .constant = .{
-                .int = i,
-            } }, {}),
-
-            .float => |f| try ret.put(.{ .constant = .{
-                .float = f,
-            } }, {}),
-
-            .str => |s| try ret.put(.{ .constant = .{
-                .string = s,
-            } }, {}),
-
+            .literal => |c| try ret.put(.{ .constant = c }, {}),
             .copy => |t| ret.unmanaged = self.types[@enumToInt(t)],
             .global => |g| try ret.put(try self.mod.global(g), {}),
 
@@ -511,9 +500,14 @@ fn hashInstruction(hasher: anytype, insn: ir.Instruction) void {
     autoHash(hasher, std.meta.activeTag(insn.op));
     autoHash(hasher, insn.result);
     switch (insn.op) {
-        .int => |i| autoHash(hasher, i),
-        .float => |f| autoHash(hasher, @bitCast(u64, f)),
-        .str => |s| hasher.update(s),
+        .literal => |c| switch (c) {
+            .int => |i| autoHash(hasher, i),
+            .float => |f| autoHash(hasher, @bitCast(u64, f)),
+            .string => |s| {
+                autoHash(hasher, s.len);
+                hasher.update(s);
+            },
+        },
         .copy => |t| autoHash(hasher, t),
         .global => |g| autoHash(hasher, g),
 
