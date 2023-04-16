@@ -1,0 +1,10 @@
+.{
+    .name = "tara",
+    .version = "0.1.0-dev",
+    .dependencies = .{
+        .bexpr = .{
+            .url = "https://github.com/silversquirl/bexpr/archive/d834237adf1c808d18026640ca1c837f87cdb354.tar.gz",
+            .hash = "122018ba825987c99e1571eefcfa3b4aae4f88022c2af5fa93f9c5cc2e02ef21010c",
+        },
+    },
+}

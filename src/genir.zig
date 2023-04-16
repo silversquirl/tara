@@ -31,8 +31,8 @@ pub const Generator = struct {
 
         const mod = ir.Module{
             .arena = self.arena,
-            .deps = self.deps.toOwnedSlice(self.arena.allocator()),
-            .globals = self.globals.toOwnedSlice(self.arena.allocator()),
+            .deps = try self.deps.toOwnedSlice(self.arena.allocator()),
+            .globals = try self.globals.toOwnedSlice(self.arena.allocator()),
             .exports = self.exports,
         };
         // Reset generator
@@ -68,7 +68,7 @@ pub const Generator = struct {
         try func(self, public, args[1..]);
     }
 
-    const toplevel_table = std.ComptimeStringMap(fn (*Generator, bool, []const bexpr.Value) Error!void, .{
+    const toplevel_table = std.ComptimeStringMap(*const fn (*Generator, bool, []const bexpr.Value) Error!void, .{
         .{ "use", tlUse },
         .{ "fn", tlFn },
         .{ "extern", tlExtern },
@@ -174,7 +174,7 @@ pub const Generator = struct {
             _ = try self.global(name, public, .{ .extern_func = .{
                 .name = try self.intern(name),
                 .mod = try self.intern(mod),
-                .params = params.toOwnedSlice(),
+                .params = try params.toOwnedSlice(),
                 .ret = ret,
             } });
         } else {
@@ -305,13 +305,13 @@ const FunctionGenerator = struct {
             .name = try self.mod.intern(name),
             .arity = @intCast(u32, params.len),
             .ntemp = self.temp_i,
-            .blocks = self.blocks.toOwnedSlice(allocator),
+            .blocks = try self.blocks.toOwnedSlice(allocator),
         } };
     }
 
     fn block(self: *FunctionGenerator, term: ir.Block.Terminal) !void {
         try self.blocks.append(self.mod.arena.allocator(), .{
-            .insns = self.insns.toOwnedSlice(self.mod.arena.allocator()),
+            .insns = try self.insns.toOwnedSlice(self.mod.arena.allocator()),
             .term = term,
         });
     }
@@ -336,7 +336,7 @@ const FunctionGenerator = struct {
                 }
 
                 const args = try self.mod.arena.allocator().alloc(ir.Temporary, call.len);
-                for (call) |arg, i| {
+                for (call, 0..) |arg, i| {
                     args[i] = try self.expression(arg);
                 }
                 return self.emit(.call, args);
@@ -377,6 +377,7 @@ const FunctionGenerator = struct {
         if (val != .symbol) return null;
         return table.get(val.symbol);
     }
+    const StmtFn = *const fn (*FunctionGenerator, []const bexpr.Value) Generator.Error!void;
     const stmt_special = std.ComptimeStringMap(StmtFn, .{
         .{ ":=", stmtDefine },
         .{ "=", stmtAssign(null) },
@@ -386,14 +387,13 @@ const FunctionGenerator = struct {
         .{ "/=", stmtAssign(.div) },
         // .{ "if", stmtIf },
     });
-    const StmtFn = fn (*FunctionGenerator, []const bexpr.Value) Generator.Error!void;
+    const ExprFn = *const fn (*FunctionGenerator, []const bexpr.Value) Generator.Error!ir.Temporary;
     const expr_special = std.ComptimeStringMap(ExprFn, .{
         .{ "+", exprOp(.add) },
         .{ "-", exprOp(.sub) },
         .{ "*", exprOp(.mul) },
         .{ "/", exprOp(.div) },
     });
-    const ExprFn = fn (*FunctionGenerator, []const bexpr.Value) Generator.Error!ir.Temporary;
 
     fn stmtDefine(self: *FunctionGenerator, args: []const bexpr.Value) !void {
         if (args.len != 2) {
@@ -429,7 +429,7 @@ const FunctionGenerator = struct {
 
     fn exprOp(comptime op: std.meta.Tag(ir.Instruction.Op)) ExprFn {
         return struct {
-            fn op(self: *FunctionGenerator, args: []const bexpr.Value) !ir.Temporary {
+            fn f(self: *FunctionGenerator, args: []const bexpr.Value) !ir.Temporary {
                 if (args.len < 1) {
                     return error.InvalidCode;
                 } else if (args.len == 1) {
@@ -452,7 +452,7 @@ const FunctionGenerator = struct {
                     return a;
                 }
             }
-        }.op;
+        }.f;
     }
 
     fn load(self: *FunctionGenerator, lv: LValue) !ir.Temporary {

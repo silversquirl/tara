@@ -9,7 +9,7 @@ pub const Module = struct {
     exports: std.StringHashMapUnmanaged(GlobalId),
 
     pub fn format(self: Module, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        for (self.globals) |glo, i| {
+        for (self.globals, 0..) |glo, i| {
             try writer.print("${} := {}\n", .{ i, glo });
         }
 
@@ -121,7 +121,7 @@ pub const Function = struct {
         const ellipsis: []const u8 = if (self.variadic) "..." else "";
         try writer.print("fn {d}{s} {s}\n", .{ self.arity, ellipsis, self.name });
 
-        for (self.blocks) |blk, i| {
+        for (self.blocks, 0..) |blk, i| {
             try writer.print("  {}:\n{}", .{ i, blk });
         }
     }
@@ -194,7 +194,7 @@ pub const Instruction = struct {
 
             .call => |args| {
                 try writer.print("{}(", .{args[0]});
-                for (args[1..]) |arg, i| {
+                for (args[1..], 0..) |arg, i| {
                     if (i > 0) {
                         try writer.writeAll(", ");
                     }
@@ -210,7 +210,7 @@ pub const Instruction = struct {
 
             .phi => |args| {
                 try writer.writeAll("Φ(");
-                for (args) |arg, i| {
+                for (args, 0..) |arg, i| {
                     if (i > 0) {
                         try writer.writeAll(", ");
                     }

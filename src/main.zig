@@ -40,7 +40,7 @@ fn errorMain() !void {
     {
         var it = modules.iterator();
         while (it.next()) |mod| {
-            std.debug.print("===== {s} =====\n\n{}\n", .{ mod.key_ptr.*, mod.value_ptr.* });
+            std.debug.print("----- {s} -----\n\n{}\n", .{ mod.key_ptr.*, mod.value_ptr.* });
         }
     }
 
@@ -52,7 +52,7 @@ fn errorMain() !void {
     for (insts.values()) |inst| {
         std.debug.print("instance of {s}:\n", .{inst.func.name});
         std.debug.print("  args:\n", .{});
-        for (inst.types) |arg, i| {
+        for (inst.types, 0..) |arg, i| {
             if (i == inst.func.arity) {
                 std.debug.print("  temps:\n", .{});
             }

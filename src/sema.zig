@@ -60,7 +60,7 @@ const ModuleAnalyzer = struct {
 
             .extern_func => |func| {
                 const params = try self.root.allocator.alloc(Type, func.params.len);
-                for (func.params) |param, i| {
+                for (func.params, 0..) |param, i| {
                     params[i] = try self.typeFromIr(param);
                 }
 
@@ -92,7 +92,7 @@ const ModuleAnalyzer = struct {
     }
 
     fn typeFromIr(_: *ModuleAnalyzer, opt_ty: ?ir.Type) !Type {
-        const ir_ty = opt_ty orelse return Type{ .void = .{} };
+        const ir_ty = opt_ty orelse return Type{ .void = {} };
         switch (ir_ty) {
             .name => unreachable, // TODO
 
@@ -190,7 +190,7 @@ const InstanceAnalyzer = struct {
                     .func => |func| {
                         const params = try self.mod.root.allocator.alloc(TypeSet, call.len - 1);
                         defer self.mod.root.allocator.free(params);
-                        for (args) |t, i| {
+                        for (args, 0..) |t, i| {
                             params[i] = self.types[@enumToInt(t)];
                         }
 
@@ -202,7 +202,7 @@ const InstanceAnalyzer = struct {
                     },
 
                     .extern_func => |func| {
-                        for (func.params) |expected, i| {
+                        for (func.params, 0..) |expected, i| {
                             const set = self.types[@enumToInt(args[i])];
                             if (set.keys().len != 1) {
                                 return error.TypeMismatch;
@@ -263,7 +263,7 @@ fn typesCompatible(expected: Type, actual: Type) bool {
             .extern_func => |af| {
                 const bf = actual.extern_func;
 
-                for (af.params) |param, i| {
+                for (af.params, 0..) |param, i| {
                     if (!param.eql(bf.params[i])) return false;
                 }
 
@@ -357,7 +357,7 @@ pub fn fmtTypeSet(tys: TypeSet) std.fmt.Formatter(formatTypeSet) {
     return .{ .data = tys };
 }
 fn formatTypeSet(tys: TypeSet, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-    for (tys.keys()) |ty, j| {
+    for (tys.keys(), 0..) |ty, j| {
         if (j > 0) {
             try writer.print(" | ", .{});
         }
@@ -460,7 +460,7 @@ pub const Type = union(enum) {
 
                 // Expensive recursive compare
                 if (!af.ret.eql(bf.ret.*)) return false;
-                for (af.params) |param, i| {
+                for (af.params, 0..) |param, i| {
                     if (!param.eql(bf.params[i])) return false;
                 }
 
